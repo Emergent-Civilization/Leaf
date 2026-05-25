@@ -1,0 +1,531 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CJendantix <cjendantix@proton.me>
+Date: Mon, 25 May 2026 01:00:00 -0400
+Subject: [PATCH] Add custom rail shape provider support
+
+
+diff --git a/net/minecraft/core/dispenser/MinecartDispenseItemBehavior.java b/net/minecraft/core/dispenser/MinecartDispenseItemBehavior.java
+index 6dfb5379e48bc9620f8770a7e11e2f4c1338218c..0eded89e3bd7123d2cb78f98be48c4851ebf6140 100644
+--- a/net/minecraft/core/dispenser/MinecartDispenseItemBehavior.java
++++ b/net/minecraft/core/dispenser/MinecartDispenseItemBehavior.java
+@@ -3,16 +3,13 @@ package net.minecraft.core.dispenser;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Direction;
+ import net.minecraft.server.level.ServerLevel;
+-import net.minecraft.tags.BlockTags;
+ import net.minecraft.world.entity.EntitySpawnReason;
+ import net.minecraft.world.entity.EntityType;
+ import net.minecraft.world.entity.vehicle.minecart.AbstractMinecart;
+ import net.minecraft.world.item.ItemStack;
+-import net.minecraft.world.level.block.BaseRailBlock;
+ import net.minecraft.world.level.block.DispenserBlock;
+ import net.minecraft.world.level.block.LevelEvent;
+ import net.minecraft.world.level.block.state.BlockState;
+-import net.minecraft.world.level.block.state.properties.RailShape;
+ import net.minecraft.world.phys.Vec3;
+ 
+ public class MinecartDispenseItemBehavior extends DefaultDispenseItemBehavior {
+@@ -34,8 +31,8 @@ public class MinecartDispenseItemBehavior extends DefaultDispenseItemBehavior {
+         BlockPos blockPos = blockSource.pos().relative(direction);
+         BlockState blockState = serverLevel.getBlockState(blockPos);
+         double d3;
+-        if (blockState.is(BlockTags.RAILS)) {
+-            if (getRailShape(blockState).isSlope()) {
++        if (AbstractMinecart.isRail(serverLevel, blockPos, blockState)) { // Leaf - custom rail compatibility
++            if (AbstractMinecart.getRailShapeOrDefault(serverLevel, blockPos, blockState).isSlope()) {
+                 d3 = 0.6;
+             } else {
+                 d3 = 0.1;
+@@ -46,11 +43,11 @@ public class MinecartDispenseItemBehavior extends DefaultDispenseItemBehavior {
+             }
+ 
+             BlockState blockState1 = serverLevel.getBlockState(blockPos.below());
+-            if (!blockState1.is(BlockTags.RAILS)) {
++            if (!AbstractMinecart.isRail(serverLevel, blockPos.below(), blockState1)) { // Leaf - custom rail compatibility
+                 return this.defaultDispenseItemBehavior.dispense(blockSource, item);
+             }
+ 
+-            if (direction != Direction.DOWN && getRailShape(blockState1).isSlope()) {
++            if (direction != Direction.DOWN && AbstractMinecart.getRailShapeOrDefault(serverLevel, blockPos.below(), blockState1).isSlope()) {
+                 d3 = -0.4;
+             } else {
+                 d3 = -0.9;
+@@ -92,10 +89,6 @@ public class MinecartDispenseItemBehavior extends DefaultDispenseItemBehavior {
+         return item;
+     }
+ 
+-    private static RailShape getRailShape(BlockState state) {
+-        return state.getBlock() instanceof BaseRailBlock baseRailBlock ? state.getValue(baseRailBlock.getShapeProperty()) : RailShape.NORTH_SOUTH;
+-    }
+-
+     @Override
+     protected void playSound(BlockSource blockSource) {
+         blockSource.level().levelEvent(LevelEvent.SOUND_DISPENSER_DISPENSE, blockSource.pos(), 0);
+diff --git a/net/minecraft/world/entity/vehicle/minecart/AbstractMinecart.java b/net/minecraft/world/entity/vehicle/minecart/AbstractMinecart.java
+index 964bffe10bc10e93ff7e2b12db7d973989f28262..4b396fc951f646dcacb1c3557a8b1bcfeab0f2b8 100644
+--- a/net/minecraft/world/entity/vehicle/minecart/AbstractMinecart.java
++++ b/net/minecraft/world/entity/vehicle/minecart/AbstractMinecart.java
+@@ -14,7 +14,6 @@ import net.minecraft.network.syncher.EntityDataAccessor;
+ import net.minecraft.network.syncher.EntityDataSerializers;
+ import net.minecraft.network.syncher.SynchedEntityData;
+ import net.minecraft.server.level.ServerLevel;
+-import net.minecraft.tags.BlockTags;
+ import net.minecraft.util.BlockUtil;
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.Util;
+@@ -44,6 +43,8 @@ import net.minecraft.world.level.storage.ValueInput;
+ import net.minecraft.world.level.storage.ValueOutput;
+ import net.minecraft.world.phys.AABB;
+ import net.minecraft.world.phys.Vec3;
++import org.dreeam.leaf.world.block.RailDataSupport;
++import org.dreeam.leaf.world.block.RailShapeSupport;
+ import org.jspecify.annotations.Nullable;
+ 
+ public abstract class AbstractMinecart extends VehicleEntity {
+@@ -257,7 +258,7 @@ public abstract class AbstractMinecart extends VehicleEntity {
+     @Override
+     protected float getBlockSpeedFactor() {
+         BlockState blockState = this.level().getBlockState(this.blockPosition());
+-        return blockState.is(BlockTags.RAILS) ? 1.0F : super.getBlockSpeedFactor();
++        return isRail(this.level(), this.blockPosition(), blockState) ? 1.0F : super.getBlockSpeedFactor();
+     }
+ 
+     @Override
+@@ -276,6 +277,23 @@ public abstract class AbstractMinecart extends VehicleEntity {
+         return EXITS.get(shape);
+     }
+ 
++    public static boolean isRail(Level level, BlockPos pos, BlockState state) {
++        return RailShapeSupport.isRail(level, pos, state);
++    }
++
++    public static boolean isRail(Level level, BlockPos pos) {
++        return isRail(level, pos, level.getBlockState(pos));
++    }
++
++    public static @Nullable RailShape getRailShape(Level level, BlockPos pos, BlockState state) {
++        return RailShapeSupport.getRailShape(level, pos, state);
++    }
++
++    public static RailShape getRailShapeOrDefault(Level level, BlockPos pos, BlockState state) {
++        RailShape railShape = getRailShape(level, pos, state);
++        return railShape != null ? railShape : RailShape.NORTH_SOUTH;
++    }
++
+     @Override
+     public Direction getMotionDirection() {
+         return this.behavior.getMotionDirection();
+@@ -346,12 +364,19 @@ public abstract class AbstractMinecart extends VehicleEntity {
+         int floor = Mth.floor(this.getX());
+         int floor1 = Mth.floor(this.getY());
+         int floor2 = Mth.floor(this.getZ());
++
+         if (useExperimentalMovement(this.level())) {
+             double d = this.getY() - 0.1 - 1.0E-5F;
+-            if (this.level().getBlockState(BlockPos.containing(floor, d, floor2)).is(BlockTags.RAILS)) {
+-                floor1 = Mth.floor(d);
++            BlockPos probePos = BlockPos.containing(floor, d, floor2);
++            if (isRail(this.level(), probePos)) {
++                floor1 = probePos.getY();
++            } else {
++                BlockPos belowPos = new BlockPos(floor, floor1 - 1, floor2);
++                if (isRail(this.level(), belowPos)) {
++                    floor1 = belowPos.getY();
++                }
+             }
+-        } else if (this.level().getBlockState(new BlockPos(floor, floor1 - 1, floor2)).is(BlockTags.RAILS)) {
++        } else if (isRail(this.level(), new BlockPos(floor, floor1 - 1, floor2))) {
+             floor1--;
+         }
+ 
+@@ -526,8 +551,8 @@ public abstract class AbstractMinecart extends VehicleEntity {
+ 
+     public Vec3 getRedstoneDirection(BlockPos pos) {
+         BlockState blockState = this.level().getBlockState(pos);
+-        if (blockState.is(Blocks.POWERED_RAIL) && blockState.getValue(PoweredRailBlock.POWERED)) {
+-            RailShape railShape = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++        if (RailDataSupport.getRailPoweredState(this.level(), pos, blockState).equals(Optional.of(true))) {
++            RailShape railShape = getRailShape(this.level(), pos, blockState);
+             if (railShape == RailShape.EAST_WEST) {
+                 if (this.isRedstoneConductor(pos.west())) {
+                     return new Vec3(1.0, 0.0, 0.0);
+diff --git a/net/minecraft/world/entity/vehicle/minecart/MinecartTNT.java b/net/minecraft/world/entity/vehicle/minecart/MinecartTNT.java
+index 0e0298ef454388bda19536aaf77d16286d638ab3..e294329a82b84d45ba9da8a792c2e744fb011772 100644
+--- a/net/minecraft/world/entity/vehicle/minecart/MinecartTNT.java
++++ b/net/minecraft/world/entity/vehicle/minecart/MinecartTNT.java
+@@ -5,7 +5,6 @@ import net.minecraft.core.particles.ParticleTypes;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.sounds.SoundEvents;
+ import net.minecraft.sounds.SoundSource;
+-import net.minecraft.tags.BlockTags;
+ import net.minecraft.tags.DamageTypeTags;
+ import net.minecraft.util.Mth;
+ import net.minecraft.world.damagesource.DamageSource;
+@@ -194,14 +193,18 @@ public class MinecartTNT extends AbstractMinecart {
+     public float getBlockExplosionResistance(
+         Explosion explosion, BlockGetter level, BlockPos pos, BlockState state, FluidState fluidState, float explosionPower
+     ) {
+-        return !this.isPrimed() || !state.is(BlockTags.RAILS) && !level.getBlockState(pos.above()).is(BlockTags.RAILS)
++        boolean onRails = level instanceof Level fullLevel
++            && (AbstractMinecart.isRail(fullLevel, pos, state) || AbstractMinecart.isRail(fullLevel, pos.above(), fullLevel.getBlockState(pos.above())));
++        return !this.isPrimed() || !onRails
+             ? super.getBlockExplosionResistance(explosion, level, pos, state, fluidState, explosionPower)
+             : 0.0F;
+     }
+ 
+     @Override
+     public boolean shouldBlockExplode(Explosion explosion, BlockGetter level, BlockPos pos, BlockState state, float explosionPower) {
+-        return (!this.isPrimed() || !state.is(BlockTags.RAILS) && !level.getBlockState(pos.above()).is(BlockTags.RAILS))
++        boolean onRails = level instanceof Level fullLevel
++            && (AbstractMinecart.isRail(fullLevel, pos, state) || AbstractMinecart.isRail(fullLevel, pos.above(), fullLevel.getBlockState(pos.above())));
++        return (!this.isPrimed() || !onRails)
+             && super.shouldBlockExplode(explosion, level, pos, state, explosionPower);
+     }
+ 
+diff --git a/net/minecraft/world/entity/vehicle/minecart/NewMinecartBehavior.java b/net/minecraft/world/entity/vehicle/minecart/NewMinecartBehavior.java
+index d8af30d57cfe7b3e7ee8620aaaf20b0d7849fe6d..37bce1a36353bee3be8d0d5c8a96c3165c855704 100644
+--- a/net/minecraft/world/entity/vehicle/minecart/NewMinecartBehavior.java
++++ b/net/minecraft/world/entity/vehicle/minecart/NewMinecartBehavior.java
+@@ -10,13 +10,13 @@ import net.minecraft.network.codec.ByteBufCodecs;
+ import net.minecraft.network.codec.StreamCodec;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.ServerPlayer;
++import net.minecraft.tags.BlockTags;
+ import net.minecraft.util.Mth;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.entity.EntitySelector;
+ import net.minecraft.world.entity.MoverType;
+ import net.minecraft.world.entity.animal.golem.IronGolem;
+ import net.minecraft.world.entity.player.Player;
+-import net.minecraft.world.level.block.BaseRailBlock;
+ import net.minecraft.world.level.block.Blocks;
+ import net.minecraft.world.level.block.PoweredRailBlock;
+ import net.minecraft.world.level.block.state.BlockState;
+@@ -24,8 +24,11 @@ import net.minecraft.world.level.block.state.properties.RailShape;
+ import net.minecraft.world.level.gamerules.GameRules;
+ import net.minecraft.world.phys.AABB;
+ import net.minecraft.world.phys.Vec3;
++import org.dreeam.leaf.world.block.RailDataSupport;
+ import org.jspecify.annotations.Nullable;
+ 
++import java.util.Optional;
++
+ public class NewMinecartBehavior extends MinecartBehavior {
+     public static final int POS_ROT_LERP_TICKS = 3;
+     public static final double ON_RAIL_Y_OFFSET = 0.1;
+@@ -56,7 +59,7 @@ public class NewMinecartBehavior extends MinecartBehavior {
+             BlockPos var5 = this.minecart.getCurrentBlockPosOrRailBelow();
+             BlockState blockState = this.level().getBlockState(var5);
+             if (this.minecart.isFirstTick()) {
+-                this.minecart.setOnRails(BaseRailBlock.isRail(blockState));
++                this.minecart.setOnRails(AbstractMinecart.isRail(this.level(), var5, blockState));
+                 this.adjustToRails(var5, blockState, true);
+             }
+ 
+@@ -64,7 +67,8 @@ public class NewMinecartBehavior extends MinecartBehavior {
+             this.minecart.moveAlongTrack(serverLevel);
+         } else {
+             this.lerpClientPositionAndRotation();
+-            boolean isRail = BaseRailBlock.isRail(this.level().getBlockState(this.minecart.getCurrentBlockPosOrRailBelow()));
++            BlockPos blockPos = this.minecart.getCurrentBlockPosOrRailBelow();
++            boolean isRail = AbstractMinecart.isRail(this.level(), blockPos, this.level().getBlockState(blockPos));
+             this.minecart.setOnRails(isRail);
+         }
+     }
+@@ -159,8 +163,8 @@ public class NewMinecartBehavior extends MinecartBehavior {
+     }
+ 
+     public void adjustToRails(BlockPos pos, BlockState state, boolean snapToStart) {
+-        if (BaseRailBlock.isRail(state)) {
+-            RailShape railShape = state.getValue(((BaseRailBlock)state.getBlock()).getShapeProperty());
++        if (AbstractMinecart.isRail(this.level(), pos, state)) {
++            RailShape railShape = AbstractMinecart.getRailShapeOrDefault(this.level(), pos, state);
+             Pair<Vec3i, Vec3i> pair = AbstractMinecart.exits(railShape);
+             Vec3 vec3 = new Vec3(pair.getFirst()).scale(0.5);
+             Vec3 vec31 = new Vec3(pair.getSecond()).scale(0.5);
+@@ -233,13 +237,13 @@ public class NewMinecartBehavior extends MinecartBehavior {
+     @Override
+     public void moveAlongTrack(ServerLevel level) {
+         for (NewMinecartBehavior.TrackIteration trackIteration = new NewMinecartBehavior.TrackIteration();
+-            trackIteration.shouldIterate() && this.minecart.isAlive();
+-            trackIteration.firstIteration = false
++             trackIteration.shouldIterate() && this.minecart.isAlive();
++             trackIteration.firstIteration = false
+         ) {
+             Vec3 deltaMovement = this.getDeltaMovement();
+             BlockPos currentBlockPosOrRailBelow = this.minecart.getCurrentBlockPosOrRailBelow();
+             BlockState blockState = this.level().getBlockState(currentBlockPosOrRailBelow);
+-            boolean isRail = BaseRailBlock.isRail(blockState);
++            boolean isRail = AbstractMinecart.isRail(this.level(), currentBlockPosOrRailBelow, blockState);
+             if (this.minecart.isOnRails() != isRail) {
+                 this.minecart.setOnRails(isRail);
+                 this.adjustToRails(currentBlockPosOrRailBelow, blockState, false);
+@@ -259,7 +263,13 @@ public class NewMinecartBehavior extends MinecartBehavior {
+                         );
+                 }
+ 
+-                RailShape railShape = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++                RailShape railShape = AbstractMinecart.getRailShape(this.level(), currentBlockPosOrRailBelow, blockState);
++                if (railShape == null) {
++                    this.minecart.setOnRails(false);
++                    this.minecart.comeOffTrack(level);
++                    trackIteration.movementLeft = 0.0;
++                    continue;
++                }
+                 Vec3 vec3 = this.calculateTrackSpeed(level, deltaMovement.horizontal(), trackIteration, currentBlockPosOrRailBelow, blockState, railShape);
+                 if (trackIteration.firstIteration) {
+                     trackIteration.movementLeft = vec3.horizontalDistance();
+@@ -388,7 +398,9 @@ public class NewMinecartBehavior extends MinecartBehavior {
+     }
+ 
+     private Vec3 calculateHaltTrackSpeed(Vec3 speed, BlockState state) {
+-        if (state.is(Blocks.POWERED_RAIL) && !state.getValue(PoweredRailBlock.POWERED)) {
++        Optional<Boolean> poweredRailState =
++            RailDataSupport.getRailPoweredState(this.level(), this.minecart.getCurrentBlockPosOrRailBelow(), state);
++        if (poweredRailState.equals(Optional.of(false))) {
+             return speed.length() < 0.03 ? Vec3.ZERO : speed.scale(0.5);
+         } else {
+             return speed;
+@@ -396,7 +408,7 @@ public class NewMinecartBehavior extends MinecartBehavior {
+     }
+ 
+     private Vec3 calculateBoostTrackSpeed(Vec3 speed, BlockPos pos, BlockState state) {
+-        if (state.is(Blocks.POWERED_RAIL) && state.getValue(PoweredRailBlock.POWERED)) {
++        if (RailDataSupport.getRailPoweredState(this.level(), pos, state).equals(Optional.of(true))) {
+             if (speed.length() > 0.01) {
+                 return speed.normalize().scale(speed.length() + this.level().purpurConfig.poweredRailBoostModifier); // Purpur - Configurable powered rail boost modifier
+             } else {
+@@ -408,6 +420,25 @@ public class NewMinecartBehavior extends MinecartBehavior {
+         }
+     }
+ 
++    private BlockPos getRailPosAt(Vec3 pos) {
++        int x = Mth.floor(pos.x);
++        int y = Mth.floor(pos.y);
++        int z = Mth.floor(pos.z);
++
++        double probeY = pos.y - NewMinecartBehavior.ON_RAIL_Y_OFFSET - 1.0E-5;
++        BlockPos probePos = BlockPos.containing(x, probeY, z);
++        if (AbstractMinecart.isRail(this.level(), probePos)) {
++            return probePos;
++        }
++
++        BlockPos belowPos = new BlockPos(x, y - 1, z);
++        if (AbstractMinecart.isRail(this.level(), belowPos)) {
++            return belowPos;
++        }
++
++        return new BlockPos(x, y, z);
++    }
++
+     @Override
+     public double stepAlongTrack(BlockPos pos, RailShape railShape, double speed) {
+         if (speed < 1.0E-5F) {
+@@ -445,10 +476,12 @@ public class NewMinecartBehavior extends MinecartBehavior {
+                 }
+ 
+                 this.minecart.move(MoverType.SELF, vec36.subtract(vec3));
+-                BlockState blockState = this.level().getBlockState(BlockPos.containing(vec36));
++                BlockPos blockPos = this.getRailPosAt(vec36);
++                BlockState blockState = this.level().getBlockState(blockPos);
++
+                 if (flag) {
+-                    if (BaseRailBlock.isRail(blockState)) {
+-                        RailShape railShape1 = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++                    if (AbstractMinecart.isRail(this.level(), blockPos, blockState)) {
++                        RailShape railShape1 = AbstractMinecart.getRailShapeOrDefault(this.level(), blockPos, blockState);
+                         if (this.restAtVShape(railShape, railShape1)) {
+                             return 0.0;
+                         }
+@@ -535,11 +568,11 @@ public class NewMinecartBehavior extends MinecartBehavior {
+                         && !entity.isPassenger()) {
+                         // CraftBukkit start
+                         if (hasVehicleEntityCollisionEvent) { // Leaf - Skip VehicleEntityCollisionEvent if no listeners
+-                        org.bukkit.event.vehicle.VehicleEntityCollisionEvent collisionEvent = new org.bukkit.event.vehicle.VehicleEntityCollisionEvent(
+-                            (org.bukkit.entity.Vehicle) this.minecart.getBukkitEntity(),
+-                            entity.getBukkitEntity()
+-                        );
+-                        if (!collisionEvent.callEvent()) continue;
++                            org.bukkit.event.vehicle.VehicleEntityCollisionEvent collisionEvent = new org.bukkit.event.vehicle.VehicleEntityCollisionEvent(
++                                (org.bukkit.entity.Vehicle) this.minecart.getBukkitEntity(),
++                                entity.getBukkitEntity()
++                            );
++                            if (!collisionEvent.callEvent()) continue;
+                         } // Leaf - Skip VehicleEntityCollisionEvent if no listeners
+                         // CraftBukkit end
+                         boolean flag = entity.startRiding(this.minecart);
+@@ -587,13 +620,13 @@ public class NewMinecartBehavior extends MinecartBehavior {
+                 if (!this.minecart.hasPassenger(entity1) && entity1.isPushable() && entity1 instanceof AbstractMinecart) {
+                     // CraftBukkit start
+                     if (hasVehicleEntityCollisionEvent) { // Leaf - Skip VehicleEntityCollisionEvent if no listeners
+-                    org.bukkit.event.vehicle.VehicleEntityCollisionEvent collisionEvent = new org.bukkit.event.vehicle.VehicleEntityCollisionEvent(
+-                        (org.bukkit.entity.Vehicle) this.minecart.getBukkitEntity(),
+-                        entity1.getBukkitEntity()
+-                    );
+-                    if (!collisionEvent.callEvent()) {
+-                        continue;
+-                    }
++                        org.bukkit.event.vehicle.VehicleEntityCollisionEvent collisionEvent = new org.bukkit.event.vehicle.VehicleEntityCollisionEvent(
++                            (org.bukkit.entity.Vehicle) this.minecart.getBukkitEntity(),
++                            entity1.getBukkitEntity()
++                        );
++                        if (!collisionEvent.callEvent()) {
++                            continue;
++                        }
+                     } // Leaf - Skip VehicleEntityCollisionEvent if no listeners
+                     // CraftBukkit end
+                     entity1.push(this.minecart);
+diff --git a/net/minecraft/world/entity/vehicle/minecart/OldMinecartBehavior.java b/net/minecraft/world/entity/vehicle/minecart/OldMinecartBehavior.java
+index ff452325689bde16f1e4fd5ada645a31481df47d..f5836445276a00dd029c868be1fb271eca307599 100644
+--- a/net/minecraft/world/entity/vehicle/minecart/OldMinecartBehavior.java
++++ b/net/minecraft/world/entity/vehicle/minecart/OldMinecartBehavior.java
+@@ -15,15 +15,17 @@ import net.minecraft.world.entity.InterpolationHandler;
+ import net.minecraft.world.entity.MoverType;
+ import net.minecraft.world.entity.animal.golem.IronGolem;
+ import net.minecraft.world.entity.player.Player;
+-import net.minecraft.world.level.block.BaseRailBlock;
+ import net.minecraft.world.level.block.Blocks;
+ import net.minecraft.world.level.block.PoweredRailBlock;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.level.block.state.properties.RailShape;
+ import net.minecraft.world.phys.AABB;
+ import net.minecraft.world.phys.Vec3;
++import org.dreeam.leaf.world.block.RailDataSupport;
+ import org.jspecify.annotations.Nullable;
+ 
++import java.util.Optional;
++
+ public class OldMinecartBehavior extends MinecartBehavior {
+     private static final double MINECART_RIDABLE_THRESHOLD = 0.01;
+     private static final double MAX_SPEED_IN_WATER = 0.2;
+@@ -58,7 +60,7 @@ public class OldMinecartBehavior extends MinecartBehavior {
+             this.minecart.applyGravity();
+             BlockPos var11 = this.minecart.getCurrentBlockPosOrRailBelow();
+             BlockState blockState = this.level().getBlockState(var11);
+-            boolean isRail = BaseRailBlock.isRail(blockState);
++            boolean isRail = AbstractMinecart.isRail(this.level(), var11, blockState);
+             this.minecart.setOnRails(isRail);
+             if (isRail) {
+                 this.moveAlongTrack(serverLevel);
+@@ -112,8 +114,9 @@ public class OldMinecartBehavior extends MinecartBehavior {
+         y = currentBlockPosOrRailBelow.getY();
+         boolean flag = false;
+         boolean flag1 = false;
+-        if (blockState.is(Blocks.POWERED_RAIL)) {
+-            flag = blockState.getValue(PoweredRailBlock.POWERED);
++        Optional<Boolean> poweredRailState = RailDataSupport.getRailPoweredState(this.level(), currentBlockPosOrRailBelow, blockState);
++        if (poweredRailState.isPresent()) {
++            flag = poweredRailState.get();
+             flag1 = !flag;
+         }
+ 
+@@ -123,7 +126,7 @@ public class OldMinecartBehavior extends MinecartBehavior {
+         }
+ 
+         Vec3 deltaMovement = this.getDeltaMovement();
+-        RailShape railShape = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++        RailShape railShape = AbstractMinecart.getRailShapeOrDefault(this.level(), currentBlockPosOrRailBelow, blockState);
+         switch (railShape) {
+             case ASCENDING_EAST:
+                 this.setDeltaMovement(deltaMovement.add(-d, 0.0, 0.0));
+@@ -276,13 +279,15 @@ public class OldMinecartBehavior extends MinecartBehavior {
+         int floor = Mth.floor(x);
+         int floor1 = Mth.floor(y);
+         int floor2 = Mth.floor(z);
+-        if (this.level().getBlockState(new BlockPos(floor, floor1 - 1, floor2)).is(BlockTags.RAILS)) {
++        BlockPos blockPos = new BlockPos(floor, floor1 - 1, floor2);
++        if (AbstractMinecart.isRail(this.level(), blockPos)) {
+             floor1--;
+         }
+ 
+         BlockState blockState = this.level().getBlockState(new BlockPos(floor, floor1, floor2));
+-        if (BaseRailBlock.isRail(blockState)) {
+-            RailShape railShape = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++        BlockPos blockPos1 = new BlockPos(floor, floor1, floor2);
++        if (AbstractMinecart.isRail(this.level(), blockPos1, blockState)) {
++            RailShape railShape = AbstractMinecart.getRailShapeOrDefault(this.level(), blockPos1, blockState);
+             y = floor1;
+             if (railShape.isSlope()) {
+                 y = floor1 + 1;
+@@ -314,13 +319,15 @@ public class OldMinecartBehavior extends MinecartBehavior {
+         int floor = Mth.floor(x);
+         int floor1 = Mth.floor(y);
+         int floor2 = Mth.floor(z);
+-        if (this.level().getBlockState(new BlockPos(floor, floor1 - 1, floor2)).is(BlockTags.RAILS)) {
++        BlockPos blockPos = new BlockPos(floor, floor1 - 1, floor2);
++        if (AbstractMinecart.isRail(this.level(), blockPos)) {
+             floor1--;
+         }
+ 
+         BlockState blockState = this.level().getBlockState(new BlockPos(floor, floor1, floor2));
+-        if (BaseRailBlock.isRail(blockState)) {
+-            RailShape railShape = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++        BlockPos blockPos1 = new BlockPos(floor, floor1, floor2);
++        if (AbstractMinecart.isRail(this.level(), blockPos1, blockState)) {
++            RailShape railShape = AbstractMinecart.getRailShapeOrDefault(this.level(), blockPos1, blockState);
+             Pair<Vec3i, Vec3i> pair = AbstractMinecart.exits(railShape);
+             Vec3i vec3i = pair.getFirst();
+             Vec3i vec3i1 = pair.getSecond();
+diff --git a/net/minecraft/world/item/MinecartItem.java b/net/minecraft/world/item/MinecartItem.java
+index 3a65e1a0b914d113feb727833803ece8f3b2e020..c38ae42e162f3a1b6cb9955c29345ae5bd0147f0 100644
+--- a/net/minecraft/world/item/MinecartItem.java
++++ b/net/minecraft/world/item/MinecartItem.java
+@@ -2,7 +2,6 @@ package net.minecraft.world.item;
+ 
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.server.level.ServerLevel;
+-import net.minecraft.tags.BlockTags;
+ import net.minecraft.world.InteractionResult;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.entity.EntitySpawnReason;
+@@ -10,7 +9,6 @@ import net.minecraft.world.entity.EntityType;
+ import net.minecraft.world.entity.vehicle.minecart.AbstractMinecart;
+ import net.minecraft.world.item.context.UseOnContext;
+ import net.minecraft.world.level.Level;
+-import net.minecraft.world.level.block.BaseRailBlock;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.level.block.state.properties.RailShape;
+ import net.minecraft.world.level.gameevent.GameEvent;
+@@ -29,14 +27,13 @@ public class MinecartItem extends Item {
+         Level level = context.getLevel();
+         BlockPos clickedPos = context.getClickedPos();
+         BlockState blockState = level.getBlockState(clickedPos);
+-        if (!blockState.is(BlockTags.RAILS)) {
++        RailShape railShape = AbstractMinecart.getRailShape(level, clickedPos, blockState);
++        if (railShape == null) {
+             if (!level.purpurConfig.minecartPlaceAnywhere) return InteractionResult.FAIL; // Purpur - Minecart settings and WASD controls
+             if (blockState.isSolid()) clickedPos = clickedPos.relative(context.getClickedFace());
++            railShape = RailShape.NORTH_SOUTH;
+         } // else { // Purpur - Minecart settings and WASD controls
+             ItemStack itemInHand = context.getItemInHand();
+-            RailShape railShape = blockState.getBlock() instanceof BaseRailBlock
+-                ? blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty())
+-                : RailShape.NORTH_SOUTH;
+             double d = 0.0;
+             if (railShape.isSlope()) {
+                 d = 0.5;
+diff --git a/net/minecraft/world/phys/shapes/MinecartCollisionContext.java b/net/minecraft/world/phys/shapes/MinecartCollisionContext.java
+index 211ad4a3e6bf0d36931cb23b9d0d633f114483f7..dc5d4e1c1b5a5d6731b7e9c33bff7fed031dfea3 100644
+--- a/net/minecraft/world/phys/shapes/MinecartCollisionContext.java
++++ b/net/minecraft/world/phys/shapes/MinecartCollisionContext.java
+@@ -3,7 +3,6 @@ package net.minecraft.world.phys.shapes;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.world.entity.vehicle.minecart.AbstractMinecart;
+ import net.minecraft.world.level.CollisionGetter;
+-import net.minecraft.world.level.block.BaseRailBlock;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.level.block.state.properties.RailShape;
+ import org.jspecify.annotations.Nullable;
+@@ -20,10 +19,10 @@ public class MinecartCollisionContext extends EntityCollisionContext {
+     private void setupContext(AbstractMinecart minecart) {
+         BlockPos currentBlockPosOrRailBelow = minecart.getCurrentBlockPosOrRailBelow();
+         BlockState blockState = minecart.level().getBlockState(currentBlockPosOrRailBelow);
+-        boolean isRail = BaseRailBlock.isRail(blockState);
++        boolean isRail = AbstractMinecart.isRail(minecart.level(), currentBlockPosOrRailBelow, blockState); // Leaf - custom rail compatibility
+         if (isRail) {
+             this.ingoreBelow = currentBlockPosOrRailBelow.below();
+-            RailShape railShape = blockState.getValue(((BaseRailBlock)blockState.getBlock()).getShapeProperty());
++            RailShape railShape = AbstractMinecart.getRailShapeOrDefault(minecart.level(), currentBlockPosOrRailBelow, blockState); // Leaf - custom rail compatibility
+             if (railShape.isSlope()) {
+                 this.slopeIgnore = switch (railShape) {
+                     case ASCENDING_EAST -> currentBlockPosOrRailBelow.east();

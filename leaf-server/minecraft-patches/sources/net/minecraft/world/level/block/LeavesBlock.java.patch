@@ -1,6 +1,6 @@
 --- a/net/minecraft/world/level/block/LeavesBlock.java
 +++ b/net/minecraft/world/level/block/LeavesBlock.java
-@@ -117,6 +_,7 @@
+@@ -127,6 +_,7 @@
                  break;
              }
          }
